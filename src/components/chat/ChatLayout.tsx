@@ -539,6 +539,55 @@ const ChatBotDemo = () => {
           <ConversationScrollButton />
         </Conversation>
 
+        {dataset && (
+          <div className="mt-4 mb-2 flex flex-wrap gap-2 text-xs">
+            <button
+              type="button"
+              className="rounded-full border px-3 py-1 bg-background hover:bg-muted transition-colors"
+              onClick={() =>
+                setInput(
+                  "Give me a high-level EDA report for the uploaded dataset.",
+                )
+              }
+            >
+              EDA report
+            </button>
+            <button
+              type="button"
+              className="rounded-full border px-3 py-1 bg-background hover:bg-muted transition-colors"
+              onClick={() =>
+                setInput(
+                  "Show column-wise statistics and missing values summary.",
+                )
+              }
+            >
+              Column stats & missingness
+            </button>
+            <button
+              type="button"
+              className="rounded-full border px-3 py-1 bg-background hover:bg-muted transition-colors"
+              onClick={() =>
+                setInput(
+                  "Highlight interesting relationships or correlations between numeric columns.",
+                )
+              }
+            >
+              Correlations
+            </button>
+            <button
+              type="button"
+              className="rounded-full border px-3 py-1 bg-background hover:bg-muted transition-colors"
+              onClick={() =>
+                setInput(
+                  "Identify key patterns or segments in this dataset that would be useful for business decisions.",
+                )
+              }
+            >
+              Key patterns
+            </button>
+          </div>
+        )}
+
         <PromptInput
           onSubmit={handleSubmit}
           className="mt-4"
@@ -546,54 +595,6 @@ const ChatBotDemo = () => {
           multiple
         >
           <PromptInputBody>
-            {dataset && (
-              <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                <button
-                  type="button"
-                  className="rounded-full border px-3 py-1 bg-background hover:bg-muted transition-colors"
-                  onClick={() =>
-                    setInput(
-                      "Give me a high-level EDA report for the uploaded dataset.",
-                    )
-                  }
-                >
-                  EDA report
-                </button>
-                <button
-                  type="button"
-                  className="rounded-full border px-3 py-1 bg-background hover:bg-muted transition-colors"
-                  onClick={() =>
-                    setInput(
-                      "Show column-wise statistics and missing values summary.",
-                    )
-                  }
-                >
-                  Column stats & missingness
-                </button>
-                <button
-                  type="button"
-                  className="rounded-full border px-3 py-1 bg-background hover:bg-muted transition-colors"
-                  onClick={() =>
-                    setInput(
-                      "Highlight interesting relationships or correlations between numeric columns.",
-                    )
-                  }
-                >
-                  Correlations
-                </button>
-                <button
-                  type="button"
-                  className="rounded-full border px-3 py-1 bg-background hover:bg-muted transition-colors"
-                  onClick={() =>
-                    setInput(
-                      "Identify key patterns or segments in this dataset that would be useful for business decisions.",
-                    )
-                  }
-                >
-                  Key patterns
-                </button>
-              </div>
-            )}
             <PromptInputTextarea
               onChange={(e) => setInput(e.target.value)}
               value={input}
