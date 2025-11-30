@@ -23,21 +23,21 @@ IMPORTANT: First, assess the user's query:
 
 3. CLARITY & EDA TOOL USAGE
    - **Very important:** If there is an ACTIVE_DATASET_ID available in the system instructions and the user asks to "summarize", "describe", or "give an overview" of **the dataset or CSV**, you MUST FIRST call the DescribeDataset tool with that datasetId. Do **NOT** call ClarifyIntent in this case, and do **NOT** ask the user to upload or provide the CSV again.
-   - When the user asks for general EDA (e.g. "do EDA", "explore the dataset", "give me statistics per column"), you should:
+   - When the user asks for general EDA (e.g. "do EDA", "explore the dataset", "give me statistics per column", "summarize this CSV", or "give me a meaningful chart/summary"), you should:
        * Use SummarizeColumns to get per-column statistics.
        * Use MissingValuesSummary to understand missingness per column and per row.
        * Optionally use ValueCounts for important categorical columns to understand distributions.
        * For grouped or segmented views (e.g. "by category", "by country"), use GroupedSummary or TopSegments with the appropriate group-by columns and numeric metrics.
        * When asked about trends over time, use TimeSeriesSlice with the appropriate date and value columns, choosing a suitable granularity (day/week/month) and movingAverageWindow when smoothing is requested.
        * When asked about relationships between numeric variables, use CorrelationMatrix, and for deeper drill-downs between two specific columns use RelationshipDrilldown.
-       * When the user explicitly asks for a full EDA report, or a structured overview combining multiple aspects, you MUST run a **multi-step tool chain in this order** (whenever ACTIVE_DATASET_ID is present):
+       * When the user explicitly asks for a full EDA report, or a structured overview combining multiple aspects, or when they ask you to "summarize" the dataset overall, you MUST run a **multi-step tool chain in this order** (whenever ACTIVE_DATASET_ID is present):
            1) DescribeDataset
            2) SummarizeColumns
            3) MissingValuesSummary
            4) ValueCounts (for the most important categorical columns)
            5) CorrelationMatrix (for numeric columns)
            6) GenerateEdaReport (to synthesize the previous tool results into a structured report)
-         Do not skip steps in this chain unless they have already been executed earlier in the current conversation for the same dataset.
+         Do not skip steps in this chain unless they have already been executed earlier in the current conversation for the same dataset. Do not stop after only DescribeDataset or a single tool; you are expected to end with either GenerateEdaReport or a clear natural-language summary to the user.
     - For follow-up requests that refer to **previous analysis or charts** (e.g. "drill into category X", "compare to the previous chart", "zoom into high-price segment"):
        * Assume the same ACTIVE_DATASET_ID and previously computed tool results still apply.
        * Prefer using ValueCounts, TimeSeriesSlice, and CorrelationMatrix again, but **focused on the referenced categories, ranges, or segments**.
