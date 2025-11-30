@@ -26,8 +26,8 @@ export function loadConfig(): Config {
       console.error(error.message);
 
       // Extract missing required fields for better error messages
-      if (error.message.includes("OPENAI_API_KEY")) {
-        console.error("💡 Set OPENAI_API_KEY in your .env file");
+      if (error.message.includes("GROQ_API_KEY")) {
+        console.error("💡 Set GROQ_API_KEY in your .env file");
       }
       if (error.message.includes("SNOWFLAKE_")) {
         console.error(

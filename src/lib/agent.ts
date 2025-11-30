@@ -6,7 +6,7 @@ import {
   convertToModelMessages,
   streamText,
 } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { groq } from "@ai-sdk/groq";
 import {
   AssessEntityCoverage,
   ClarifyIntent,
@@ -50,6 +50,15 @@ import {
   SanityCheck,
   VisualizeData,
 } from "./tools/reporting";
+import {
+  DescribeDataset,
+  SummarizeColumns,
+  ValueCounts,
+  TimeSeriesSlice,
+  CorrelationMatrix,
+  MissingValuesSummary,
+  GenerateEdaReport,
+} from "./tools/eda";
 import { PLANNING_SPECIALIST_SYSTEM_PROMPT } from "./prompts/planning";
 import { BUILDING_SPECIALIST_SYSTEM_PROMPT } from "./prompts/building";
 import { EXECUTION_MANAGER_SYSTEM_PROMPT } from "./prompts/execution";
@@ -65,24 +74,20 @@ export type Phase = "planning" | "building" | "execution" | "reporting";
 export async function runAgent({
   messages,
   prompt,
-  model = "openai/gpt-5",
+  model = "openai/gpt-oss-20b",
+  datasetId,
 }: {
   messages: UIMessage[];
   prompt?: string;
   model?: string;
+  datasetId?: string;
 }) {
   let phase: Phase = "planning";
   const possibleEntities = await ListEntities();
 
   const result = streamText({
-    model,
+    model: groq(model),
     messages: convertToModelMessages(messages),
-    providerOptions: {
-      openai: {
-        reasoningSummary: "detailed",
-        reasoningEffort: "medium",
-      },
-    },
     tools: {
       ReadEntityYamlRaw,
       LoadEntitiesBulk,
@@ -103,6 +108,13 @@ export async function runAgent({
       FormatResults,
       ExplainResults,
       FinalizeReport,
+      DescribeDataset,
+      SummarizeColumns,
+      ValueCounts,
+      TimeSeriesSlice,
+      CorrelationMatrix,
+      MissingValuesSummary,
+      GenerateEdaReport,
     },
     stopWhen: [
       (ctx) =>
@@ -154,10 +166,11 @@ export async function runAgent({
         return {
           system: [
             PLANNING_SPECIALIST_SYSTEM_PROMPT,
-            `<PossibleEntities>${JSON.stringify(
-              possibleEntities
-            )}</PossibleEntities>`,
-            `<VerifiedQueries>${JSON.stringify(sqlEvalSet)}</VerifiedQueries>`,
+            `POSSIBLE_ENTITIES_JSON: ${JSON.stringify(possibleEntities)}`,
+            `VERIFIED_QUERIES_JSON: ${JSON.stringify(sqlEvalSet)}`,
+            datasetId
+              ? `ACTIVE_DATASET_ID: ${datasetId}. When you use the DescribeDataset tool, pass this id as datasetId.`
+              : "NO_ACTIVE_DATASET_ID",
           ].join("\n"),
           activeTools: [
             "ReadEntityYamlRaw",
@@ -167,6 +180,13 @@ export async function runAgent({
             "ClarifyIntent",
             "SearchCatalog",
             "SearchSchema",
+            "DescribeDataset",
+            "SummarizeColumns",
+            "ValueCounts",
+            "TimeSeriesSlice",
+            "CorrelationMatrix",
+            "MissingValuesSummary",
+            "GenerateEdaReport",
             "FinalizePlan",
             "FinalizeBuild",
             "FinalizeNoData",

@@ -9,9 +9,9 @@ type Phase = "planning" | "building" | "execution" | "reporting";
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, model } = await req.json();
+    const { messages, model, datasetId } = await req.json();
 
-    const result = await runAgent({ messages, model });
+    const result = await runAgent({ messages, model, datasetId });
 
     return result.toUIMessageStreamResponse();
   } catch (err: unknown) {

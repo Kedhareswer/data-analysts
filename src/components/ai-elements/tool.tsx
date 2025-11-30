@@ -19,6 +19,18 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement } from "react";
 import { CodeBlock } from "./code-block";
+import type { ChartSpec } from "@/lib/charts";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+  ResponsiveContainer,
+} from "recharts";
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
@@ -126,14 +138,95 @@ export const ToolOutput = ({
     return null;
   }
 
-  let Output = <div>{output as ReactNode}</div>;
+  const maybeRenderCharts = () => {
+    if (!output || typeof output !== "object" || isValidElement(output)) {
+      return null;
+    }
 
-  if (typeof output === "object" && !isValidElement(output)) {
-    Output = (
-      <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
+    const obj = output as any;
+    if (!Array.isArray(obj.charts) || obj.charts.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-4 p-3">
+        {obj.charts.map(
+          (
+            chart: {
+              spec: ChartSpec;
+              data: Record<string, unknown>[];
+            },
+            idx: number,
+          ) => {
+            const { spec, data } = chart;
+            const key = spec.id ?? `chart-${idx}`;
+
+            if (spec.type === "bar") {
+              return (
+                <div key={key} className="h-64">
+                  {spec.title && (
+                    <div className="mb-1 text-xs font-medium">
+                      {spec.title}
+                    </div>
+                  )}
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data as any[]}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey={spec.xField} />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey={spec.yField} fill="#8884d8" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            }
+
+            if (spec.type === "line") {
+              return (
+                <div key={key} className="h-64">
+                  {spec.title && (
+                    <div className="mb-1 text-xs font-medium">
+                      {spec.title}
+                    </div>
+                  )}
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data as any[]}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey={spec.xField} />
+                      <YAxis />
+                      <Tooltip />
+                      <Line
+                        type="monotone"
+                        dataKey={spec.yField}
+                        stroke="#8884d8"
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            }
+
+            return null;
+          },
+        )}
+      </div>
     );
-  } else if (typeof output === "string") {
-    Output = <CodeBlock code={output} language="json" />;
+  };
+
+  let Output: ReactNode = maybeRenderCharts();
+
+  if (!Output) {
+    if (typeof output === "object" && !isValidElement(output)) {
+      Output = (
+        <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
+      );
+    } else if (typeof output === "string") {
+      Output = <CodeBlock code={output} language="json" />;
+    } else {
+      Output = <div>{output as ReactNode}</div>;
+    }
   }
 
   return (

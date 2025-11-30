@@ -33,7 +33,7 @@ export const intentSchema = z.object({
   filters: z.array(z.string()).default([]), // free-form clauses; optional use
   structuredFilters: z.array(structuredFilterSchema).default([]),
   grain: z.string().optional(),
-  compare: z.string().optional(),
+  compare: z.union([z.string(), z.null()]).optional(),
   timeRange: timeRangeSchema.optional(),
 });
 
