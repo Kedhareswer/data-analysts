@@ -867,7 +867,7 @@ const ChatBotDemo = () => {
                           <Message from={message.role}>
                             <MessageContent>
                               <Response>
-                                I’ve run analysis tools on your dataset for this request. Next, I’ll usually generate a concise EDA-style summary or full report based on these results. If you’d like something specific, you can also ask me to "generate a full EDA report", "summarize the key insights", or "focus on a particular column or segment".
+                                I’ve run analysis tools on your dataset for this request. Next, I’ll usually generate a concise EDA-style summary or full report based on these results. If you’d like something specific, you can also ask me to &quot;generate a full EDA report&quot;, &quot;summarize the key insights&quot;, or &quot;focus on a particular column or segment&quot;.
                               </Response>
                             </MessageContent>
                           </Message>
