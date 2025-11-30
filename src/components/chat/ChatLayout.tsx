@@ -77,6 +77,7 @@ const ChatBotDemo = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [groqApiKey, setGroqApiKey] = useState("");
   const [showGroqKey, setShowGroqKey] = useState(false);
+  const [activeTab, setActiveTab] = useState<"chat" | "report">("chat");
   const { messages, sendMessage, status, regenerate } = useChat();
   console.log(messages);
 
@@ -157,9 +158,221 @@ const ChatBotDemo = () => {
     setInput("");
   };
 
+  const renderCompiledReport = () => {
+    const assistantMessages = messages.filter((m) => m.role === "assistant");
+
+    const findPart = (predicate: (part: any) => boolean) => {
+      for (let i = assistantMessages.length - 1; i >= 0; i--) {
+        const msg = assistantMessages[i];
+        const part = msg.parts.find(predicate);
+        if (part) return part as any;
+      }
+      return null;
+    };
+
+    const reportPart = findPart(
+      (part) =>
+        "output" in part &&
+        part.output &&
+        typeof part.output === "object" &&
+        "overview" in part.output &&
+        "sections" in part.output,
+    );
+
+    const mvPart = findPart(
+      (part) =>
+        "output" in part &&
+        part.output &&
+        typeof part.output === "object" &&
+        "rowCount" in part.output &&
+        "rowsWithAnyMissing" in part.output &&
+        "columns" in part.output,
+    );
+
+    const corrPart = findPart(
+      (part) =>
+        "output" in part &&
+        part.output &&
+        typeof part.output === "object" &&
+        "numericColumns" in part.output &&
+        "matrix" in part.output,
+    );
+
+    const reportOutput = reportPart && "output" in reportPart ? (reportPart.output as {
+      overview?: { name?: string; rowCount?: number; columnCount?: number };
+      sections?: Array<{ id: string; title: string; description?: string }>;
+    }) : null;
+
+    const mvOutput = mvPart && "output" in mvPart ? (mvPart.output as {
+      rowCount: number;
+      rowsWithAnyMissing: number;
+      columns: Array<{
+        name: string;
+        nullCount: number;
+        nonNullCount: number;
+        nullPercent: number;
+      }>;
+    }) : null;
+
+    const corrOutput = corrPart && "output" in corrPart ? (corrPart.output as {
+      numericColumns: string[];
+      matrix: Record<string, Record<string, number>>;
+    }) : null;
+
+    const cellColor = (value: number) => {
+      const v = Math.max(-1, Math.min(1, value));
+      const intensity = Math.round(Math.abs(v) * 80);
+      if (v >= 0) {
+        return `rgba(34,197,94,${0.2 + intensity / 200})`;
+      }
+      return `rgba(239,68,68,${0.2 + intensity / 200})`;
+    };
+
+    if (!reportOutput && !mvOutput && !corrOutput) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground border rounded-lg">
+          No compiled report yet. Ask for a full EDA report on the current dataset to populate this view.
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex-1 overflow-auto space-y-4">
+        {reportOutput && (
+          <div className="rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
+            <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+              EDA Report
+            </div>
+            {reportOutput.overview && (
+              <div className="space-y-1">
+                {reportOutput.overview.name && (
+                  <div>
+                    <span className="font-semibold">Dataset:</span> {reportOutput.overview.name}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-4 text-xs">
+                  {typeof reportOutput.overview.rowCount === "number" && (
+                    <div>
+                      <span className="font-semibold">Rows:</span> {reportOutput.overview.rowCount}
+                    </div>
+                  )}
+                  {typeof reportOutput.overview.columnCount === "number" && (
+                    <div>
+                      <span className="font-semibold">Columns:</span> {reportOutput.overview.columnCount}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {reportOutput.sections && reportOutput.sections.length > 0 && (
+              <div className="space-y-2 mt-2">
+                {reportOutput.sections.map((section) => (
+                  <div key={section.id} className="space-y-1">
+                    <div className="font-medium text-xs uppercase tracking-wide">
+                      {section.title}
+                    </div>
+                    {section.description && (
+                      <div className="text-xs text-muted-foreground whitespace-pre-line">
+                        {section.description}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {mvOutput && mvOutput.columns.length > 0 && (
+          <div className="rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
+            <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+              Missing Values Summary
+            </div>
+            <div className="text-xs flex flex-wrap gap-4">
+              <div>
+                <span className="font-semibold">Rows:</span> {mvOutput.rowCount}
+              </div>
+              <div>
+                <span className="font-semibold">Rows with any missing:</span> {mvOutput.rowsWithAnyMissing}
+              </div>
+            </div>
+            <div className="mt-2 max-h-48 overflow-y-auto text-xs">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left pr-2 py-1">Column</th>
+                    <th className="text-right px-2 py-1">Missing</th>
+                    <th className="text-right px-2 py-1">% Missing</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mvOutput.columns.map((col) => (
+                    <tr key={col.name} className="border-b last:border-0">
+                      <td className="pr-2 py-1">{col.name}</td>
+                      <td className="text-right px-2 py-1">{col.nullCount}</td>
+                      <td className="text-right px-2 py-1">{col.nullPercent.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {corrOutput && corrOutput.numericColumns.length > 0 && (
+          <div className="rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
+            <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+              Correlation Matrix
+            </div>
+            <div className="mt-2 max-h-64 overflow-auto text-xs">
+              <table className="border-collapse">
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 bg-muted px-2 py-1 text-left">Var</th>
+                    {corrOutput.numericColumns.map((col) => (
+                      <th key={col} className="px-2 py-1 text-right">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {corrOutput.numericColumns.map((rowCol) => (
+                    <tr key={rowCol}>
+                      <td className="sticky left-0 bg-muted px-2 py-1 text-left font-medium">
+                        {rowCol}
+                      </td>
+                      {corrOutput.numericColumns.map((col) => {
+                        const v = corrOutput.matrix?.[rowCol]?.[col] ?? 0;
+                        return (
+                          <td
+                            key={col}
+                            className="px-2 py-1 text-right border cursor-pointer"
+                            style={{ backgroundColor: cellColor(v) }}
+                            onClick={() =>
+                              setInput(
+                                `Analyze the relationship between "${rowCol}" and "${col}" (scatterplot or grouped view) and explain any interesting patterns.`,
+                              )
+                            }
+                          >
+                            {v.toFixed(2)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="max-w-5xl mx-auto p-6 relative size-full h-screen">
-      <div className="grid h-full gap-4 grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
+    <div className="w-full h-screen px-4 py-3 relative">
+      <div className="grid h-full gap-3 grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
         {/* Left column: dataset + fields */}
         <div className="flex flex-col gap-3 overflow-hidden">
           <div className="border rounded-lg p-3 text-sm space-y-2">
@@ -170,6 +383,19 @@ const ChatBotDemo = () => {
                   Upload a CSV file to analyze.
                 </div>
               </div>
+              {uploadError && (
+                <div className="text-xs text-red-500">{uploadError}</div>
+              )}
+              {dataset && (
+                <div className="text-xs space-y-1">
+                  <div>
+                    <span className="font-semibold">Name:</span> {dataset.name}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Rows:</span> {dataset.rowCount}
+                  </div>
+                </div>
+              )}
               <label className="inline-flex items-center gap-2 text-xs font-medium cursor-pointer">
                 <span className="border px-2 py-1 rounded">{isUploading ? "Uploading..." : "Upload CSV"}</span>
                 <input
@@ -205,7 +431,14 @@ const ChatBotDemo = () => {
                 {dataset.columns.map((col) => (
                   <div
                     key={col.name}
-                    className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-muted/60"
+                    className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-muted/60 cursor-pointer"
+                    onClick={() => {
+                      const base =
+                        col.type === "number"
+                          ? `Show a detailed distribution (histogram, summary stats, and outliers) for the numeric column "${col.name}".`
+                          : `Show value counts and interesting patterns for the column "${col.name}".`;
+                      setInput(base);
+                    }}
                   >
                     <span className="truncate" title={col.name}>
                       {col.name}
@@ -222,365 +455,433 @@ const ChatBotDemo = () => {
 
         {/* Right column: chat + results */}
         <div className="flex flex-col h-full gap-4">
-          <Conversation className="h-full">
-            <ConversationContent>
-              {messages.map((message) => (
-                <div key={message.id}>
-                  {message.role === "assistant" &&
-                    message.parts.filter((part) => part.type === "source-url")
-                      .length > 0 && (
-                      <Sources>
-                        <SourcesTrigger
-                          count={
-                            message.parts.filter(
-                              (part) => part.type === "source-url"
-                            ).length
-                          }
-                        />
-                        {message.parts
-                          .filter((part) => part.type === "source-url")
-                          .map((part, i) => (
-                            <SourcesContent key={`${message.id}-${i}`}>
-                              <Source
-                                key={`${message.id}-${i}`}
-                                href={part.url}
-                                title={part.url}
-                              />
-                            </SourcesContent>
-                          ))}
-                      </Sources>
-                    )}
-                  {message.parts.map((part, i) => {
-                    switch (part.type) {
-                      case "text":
-                        return (
-                          <Fragment key={`${message.id}-${i}`}>
-                            <Message from={message.role}>
-                              <MessageContent>
-                                <Response>{part.text}</Response>
-                              </MessageContent>
-                            </Message>
-                            {message.role === "assistant" &&
-                              i === messages.length - 1 && (
-                                <Actions className="mt-2">
-                                  <Action
-                                    onClick={() => regenerate()}
-                                    label="Retry"
-                                  >
-                                    <RefreshCcwIcon className="size-3" />
-                                  </Action>
-                                  <Action
-                                    onClick={() =>
-                                      navigator.clipboard.writeText(part.text)
-                                    }
-                                    label="Copy"
-                                  >
-                                    <CopyIcon className="size-3" />
-                                  </Action>
-                                </Actions>
-                              )}
-                          </Fragment>
-                        );
-                      case "reasoning":
-                        return (
-                          <Reasoning
-                            key={`${message.id}-${i}`}
-                            className="w-full"
-                            isStreaming={
-                              status === "streaming" &&
-                              i === message.parts.length - 1 &&
-                              message.id === messages.at(-1)?.id
+          <div className="flex items-center justify-between text-xs">
+            <div className="inline-flex rounded-full border bg-muted/60 p-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab("chat")}
+                className={`px-3 py-1 rounded-full ${
+                  activeTab === "chat"
+                    ? "bg-background shadow-sm"
+                    : "text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("report")}
+                className={`px-3 py-1 rounded-full ${
+                  activeTab === "report"
+                    ? "bg-background shadow-sm"
+                    : "text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                Report
+              </button>
+            </div>
+          </div>
+
+          {activeTab === "chat" ? (
+            <Conversation className="h-full">
+              <ConversationContent>
+                {messages.map((message) => (
+                  <div key={message.id}>
+                    {message.role === "assistant" &&
+                      message.parts.filter((part) => part.type === "source-url")
+                        .length > 0 && (
+                        <Sources>
+                          <SourcesTrigger
+                            count={
+                              message.parts.filter(
+                                (part) => part.type === "source-url"
+                              ).length
                             }
-                          >
-                            <ReasoningTrigger />
-                            <ReasoningContent>{part.text}</ReasoningContent>
-                          </Reasoning>
-                        );
-                      default:
-                        if (
-                          part.type.startsWith("tool-") &&
-                          "state" in part &&
-                          "input" in part
-                        ) {
-                          const toolType = part.type as `tool-${string}`;
-                          return (
-                            <Tool key={`${message.id}-${i}`}>
-                              <ToolHeader type={toolType} state={part.state} />
-                              <ToolContent>
-                                <ToolInput input={part.input} />
-                                <ToolOutput
-                                  output={
-                                    part.output ? (
-                                      <Response>
-                                        {typeof part.output === "string"
-                                          ? part.output
-                                          : JSON.stringify(part.output, null, 2)}
-                                      </Response>
-                                    ) : null
-                                  }
-                                  errorText={part.errorText}
+                          />
+                          {message.parts
+                            .filter((part) => part.type === "source-url")
+                            .map((part, i) => (
+                              <SourcesContent key={`${message.id}-${i}`}>
+                                <Source
+                                  key={`${message.id}-${i}`}
+                                  href={part.url}
+                                  title={part.url}
                                 />
-                              </ToolContent>
-                            </Tool>
+                              </SourcesContent>
+                            ))}
+                        </Sources>
+                      )}
+                    {message.parts.map((part, i) => {
+                      switch (part.type) {
+                        case "text":
+                          return (
+                            <Fragment key={`${message.id}-${i}`}>
+                              <Message from={message.role}>
+                                <MessageContent>
+                                  <Response>{part.text}</Response>
+                                </MessageContent>
+                              </Message>
+                              {message.role === "assistant" &&
+                                i === messages.length - 1 && (
+                                  <Actions className="mt-2">
+                                    <Action
+                                      onClick={() => regenerate()}
+                                      label="Retry"
+                                    >
+                                      <RefreshCcwIcon className="size-3" />
+                                    </Action>
+                                    <Action
+                                      onClick={() =>
+                                        navigator.clipboard.writeText(part.text)
+                                      }
+                                      label="Copy"
+                                    >
+                                      <CopyIcon className="size-3" />
+                                    </Action>
+                                  </Actions>
+                                )}
+                            </Fragment>
                           );
+                        case "reasoning":
+                          return (
+                            <Reasoning
+                              key={`${message.id}-${i}`}
+                              className="w-full"
+                              isStreaming={
+                                status === "streaming" &&
+                                i === message.parts.length - 1 &&
+                                message.id === messages.at(-1)?.id
+                              }
+                            >
+                              <ReasoningTrigger />
+                              <ReasoningContent>{part.text}</ReasoningContent>
+                            </Reasoning>
+                          );
+                        default:
+                          if (
+                            part.type.startsWith("tool-") &&
+                            "state" in part &&
+                            "input" in part
+                          ) {
+                            const toolType = part.type as `tool-${string}`;
+                            return (
+                              <Tool key={`${message.id}-${i}`}>
+                                <ToolHeader type={toolType} state={part.state} />
+                                <ToolContent>
+                                  <ToolInput input={part.input} />
+                                  <ToolOutput
+                                    output={
+                                      part.output ? (
+                                        <Response>
+                                          {typeof part.output === "string"
+                                            ? part.output
+                                            : JSON.stringify(part.output, null, 2)}
+                                        </Response>
+                                      ) : null
+                                    }
+                                    errorText={part.errorText}
+                                  />
+                                </ToolContent>
+                              </Tool>
+                            );
+                          }
+                          return null;
+                      }
+                    })}
+                    {/* Display narrative from FinalizeReport as final result */}
+                    {message.role === "assistant" &&
+                      (() => {
+                        // Find FinalizeReport by checking for the specific output structure
+                        const finalizeReportPart = message.parts.find(
+                          (part) =>
+                            "output" in part &&
+                            part.output &&
+                            typeof part.output === "object" &&
+                            "narrative" in part.output &&
+                            "sql" in part.output &&
+                            "confidence" in part.output
+                        );
+
+                        if (finalizeReportPart && "output" in finalizeReportPart) {
+                          const output = finalizeReportPart.output as {
+                            narrative: string;
+                          };
+
+                          if (output.narrative) {
+                            return (
+                              <Message from={message.role}>
+                                <MessageContent>
+                                  <Response>{output.narrative}</Response>
+                                </MessageContent>
+                              </Message>
+                            );
+                          }
                         }
                         return null;
-                    }
-                  })}
-                  {/* Display narrative from FinalizeReport as final result */}
-                  {message.role === "assistant" &&
-                    (() => {
-                      // Find FinalizeReport by checking for the specific output structure
-                      const finalizeReportPart = message.parts.find(
-                        (part) =>
-                          "output" in part &&
-                          part.output &&
-                          typeof part.output === "object" &&
-                          "narrative" in part.output &&
-                          "sql" in part.output &&
-                          "confidence" in part.output
-                      );
+                      })()}
+                    {/* Display EDA report from GenerateEdaReport or similar tools */}
+                    {message.role === "assistant" &&
+                      (() => {
+                        const reportPart = message.parts.find(
+                          (part) =>
+                            "output" in part &&
+                            part.output &&
+                            typeof part.output === "object" &&
+                            "overview" in part.output &&
+                            "sections" in part.output,
+                        );
 
-                      if (finalizeReportPart && "output" in finalizeReportPart) {
-                        const output = finalizeReportPart.output as {
-                          narrative: string;
+                        if (!reportPart || !("output" in reportPart)) return null;
+
+                        const output = reportPart.output as {
+                          overview?: {
+                            name?: string;
+                            rowCount?: number;
+                            columnCount?: number;
+                          };
+                          sections?: Array<{
+                            id: string;
+                            title: string;
+                            description?: string;
+                          }>;
                         };
 
-                        if (output.narrative) {
-                          return (
-                            <Message from={message.role}>
-                              <MessageContent>
-                                <Response>{output.narrative}</Response>
-                              </MessageContent>
-                            </Message>
-                          );
-                        }
-                      }
-                      return null;
-                    })()}
-                  {/* Display EDA report from GenerateEdaReport or similar tools */}
-                  {message.role === "assistant" &&
-                    (() => {
-                      const reportPart = message.parts.find(
-                        (part) =>
-                          "output" in part &&
-                          part.output &&
-                          typeof part.output === "object" &&
-                          "overview" in part.output &&
-                          "sections" in part.output,
-                      );
+                        if (!output.overview && !output.sections) return null;
 
-                      if (!reportPart || !("output" in reportPart)) return null;
-
-                      const output = reportPart.output as {
-                        overview?: {
-                          name?: string;
-                          rowCount?: number;
-                          columnCount?: number;
-                        };
-                        sections?: Array<{
-                          id: string;
-                          title: string;
-                          description?: string;
-                        }>;
-                      };
-
-                      if (!output.overview && !output.sections) return null;
-
-                      return (
-                        <div className="mt-4 rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
-                          <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
-                            EDA Report
-                          </div>
-                          {output.overview && (
-                            <div className="space-y-1">
-                              {output.overview.name && (
-                                <div>
-                                  <span className="font-semibold">Dataset:</span>{" "}
-                                  {output.overview.name}
-                                </div>
-                              )}
-                              <div className="flex flex-wrap gap-4 text-xs">
-                                {typeof output.overview.rowCount === "number" && (
-                                  <div>
-                                    <span className="font-semibold">Rows:</span>{" "}
-                                    {output.overview.rowCount}
-                                  </div>
-                                )}
-                                {typeof output.overview.columnCount === "number" && (
-                                  <div>
-                                    <span className="font-semibold">Columns:</span>{" "}
-                                    {output.overview.columnCount}
-                                  </div>
-                                )}
-                              </div>
+                        return (
+                          <div className="mt-4 rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
+                            <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                              EDA Report
                             </div>
-                          )}
-                          {output.sections && output.sections.length > 0 && (
-                            <div className="space-y-2 mt-2">
-                              {output.sections.map((section) => (
-                                <div key={section.id} className="space-y-1">
-                                  <div className="font-medium text-xs uppercase tracking-wide">
-                                    {section.title}
+                            {output.overview && (
+                              <div className="space-y-1">
+                                {output.overview.name && (
+                                  <div>
+                                    <span className="font-semibold">Dataset:</span>{" "}
+                                    {output.overview.name}
                                   </div>
-                                  {section.description && (
-                                    <div className="text-xs text-muted-foreground whitespace-pre-line">
-                                      {section.description}
+                                )}
+                                <div className="flex flex-wrap gap-4 text-xs">
+                                  {typeof output.overview.rowCount === "number" && (
+                                    <div>
+                                      <span className="font-semibold">Rows:</span>{" "}
+                                      {output.overview.rowCount}
+                                    </div>
+                                  )}
+                                  {typeof output.overview.columnCount === "number" && (
+                                    <div>
+                                      <span className="font-semibold">Columns:</span>{" "}
+                                      {output.overview.columnCount}
                                     </div>
                                   )}
                                 </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  {/* Display missing-values summary from MissingValuesSummary tool */}
-                  {message.role === "assistant" &&
-                    (() => {
-                      const mvPart = message.parts.find(
-                        (part) =>
-                          "output" in part &&
-                          part.output &&
-                          typeof part.output === "object" &&
-                          "rowCount" in part.output &&
-                          "rowsWithAnyMissing" in part.output &&
-                          "columns" in part.output,
-                      );
-
-                      if (!mvPart || !("output" in mvPart)) return null;
-
-                      const output = mvPart.output as {
-                        rowCount: number;
-                        rowsWithAnyMissing: number;
-                        columns: Array<{
-                          name: string;
-                          nullCount: number;
-                          nonNullCount: number;
-                          nullPercent: number;
-                        }>;
-                      };
-
-                      if (!output.columns || output.columns.length === 0) return null;
-
-                      return (
-                        <div className="mt-4 rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
-                          <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
-                            Missing Values Summary
-                          </div>
-                          <div className="text-xs flex flex-wrap gap-4">
-                            <div>
-                              <span className="font-semibold">Rows:</span> {output.rowCount}
-                            </div>
-                            <div>
-                              <span className="font-semibold">Rows with any missing:</span> {output.rowsWithAnyMissing}
-                            </div>
-                          </div>
-                          <div className="mt-2 max-h-48 overflow-y-auto text-xs">
-                            <table className="w-full border-collapse">
-                              <thead>
-                                <tr className="border-b">
-                                  <th className="text-left pr-2 py-1">Column</th>
-                                  <th className="text-right px-2 py-1">Missing</th>
-                                  <th className="text-right px-2 py-1">% Missing</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {output.columns.map((col) => (
-                                  <tr key={col.name} className="border-b last:border-0">
-                                    <td className="pr-2 py-1">{col.name}</td>
-                                    <td className="text-right px-2 py-1">{col.nullCount}</td>
-                                    <td className="text-right px-2 py-1">
-                                      {col.nullPercent.toFixed(1)}%
-                                    </td>
-                                  </tr>
+                              </div>
+                            )}
+                            {output.sections && output.sections.length > 0 && (
+                              <div className="space-y-2 mt-2">
+                                {output.sections.map((section) => (
+                                  <div key={section.id} className="space-y-1">
+                                    <div className="font-medium text-xs uppercase tracking-wide">
+                                      {section.title}
+                                    </div>
+                                    {section.description && (
+                                      <div className="text-xs text-muted-foreground whitespace-pre-line">
+                                        {section.description}
+                                      </div>
+                                    )}
+                                  </div>
                                 ))}
-                              </tbody>
-                            </table>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      );
-                    })()}
-                  {/* Display correlation matrix from CorrelationMatrix tool */}
-                  {message.role === "assistant" &&
-                    (() => {
-                      const corrPart = message.parts.find(
-                        (part) =>
-                          "output" in part &&
-                          part.output &&
-                          typeof part.output === "object" &&
-                          "numericColumns" in part.output &&
-                          "matrix" in part.output,
-                      );
+                        );
+                      })()}
+                    {/* Display missing-values summary from MissingValuesSummary tool */}
+                    {message.role === "assistant" &&
+                      (() => {
+                        const mvPart = message.parts.find(
+                          (part) =>
+                            "output" in part &&
+                            part.output &&
+                            typeof part.output === "object" &&
+                            "rowCount" in part.output &&
+                            "rowsWithAnyMissing" in part.output &&
+                            "columns" in part.output,
+                        );
 
-                      if (!corrPart || !("output" in corrPart)) return null;
+                        if (!mvPart || !("output" in mvPart)) return null;
 
-                      const output = corrPart.output as {
-                        numericColumns: string[];
-                        matrix: Record<string, Record<string, number>>;
-                      };
+                        const output = mvPart.output as {
+                          rowCount: number;
+                          rowsWithAnyMissing: number;
+                          columns: Array<{
+                            name: string;
+                            nullCount: number;
+                            nonNullCount: number;
+                            nullPercent: number;
+                          }>;
+                        };
 
-                      const cols = output.numericColumns;
-                      if (!cols || cols.length === 0) return null;
+                        if (!output.columns || output.columns.length === 0) return null;
 
-                      const cellColor = (value: number) => {
-                        const v = Math.max(-1, Math.min(1, value));
-                        const intensity = Math.round(Math.abs(v) * 80); // 0-80
-                        if (v >= 0) {
-                          return `rgba(34,197,94,${0.2 + intensity / 200})`; // greenish
-                        }
-                        return `rgba(239,68,68,${0.2 + intensity / 200})`; // reddish
-                      };
-
-                      return (
-                        <div className="mt-4 rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
-                          <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
-                            Correlation Matrix
-                          </div>
-                          <div className="mt-2 max-h-64 overflow-auto text-xs">
-                            <table className="border-collapse">
-                              <thead>
-                                <tr>
-                                  <th className="sticky left-0 bg-muted px-2 py-1 text-left">Var</th>
-                                  {cols.map((col) => (
-                                    <th key={col} className="px-2 py-1 text-right">
-                                      {col}
-                                    </th>
+                        return (
+                          <div className="mt-4 rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
+                            <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                              Missing Values Summary
+                            </div>
+                            <div className="text-xs flex flex-wrap gap-4">
+                              <div>
+                                <span className="font-semibold">Rows:</span> {output.rowCount}
+                              </div>
+                              <div>
+                                <span className="font-semibold">Rows with any missing:</span> {output.rowsWithAnyMissing}
+                              </div>
+                            </div>
+                            <div className="mt-2 max-h-48 overflow-y-auto text-xs">
+                              <table className="w-full border-collapse">
+                                <thead>
+                                  <tr className="border-b">
+                                    <th className="text-left pr-2 py-1">Column</th>
+                                    <th className="text-right px-2 py-1">Missing</th>
+                                    <th className="text-right px-2 py-1">% Missing</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {output.columns.map((col) => (
+                                    <tr key={col.name} className="border-b last:border-0">
+                                      <td className="pr-2 py-1">{col.name}</td>
+                                      <td className="text-right px-2 py-1">{col.nullCount}</td>
+                                      <td className="text-right px-2 py-1">
+                                        {col.nullPercent.toFixed(1)}%
+                                      </td>
+                                    </tr>
                                   ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {cols.map((rowCol) => (
-                                  <tr key={rowCol}>
-                                    <td className="sticky left-0 bg-muted px-2 py-1 text-left font-medium">
-                                      {rowCol}
-                                    </td>
-                                    {cols.map((col) => {
-                                      const v = output.matrix?.[rowCol]?.[col] ?? 0;
-                                      return (
-                                        <td
-                                          key={col}
-                                          className="px-2 py-1 text-right border"
-                                          style={{ backgroundColor: cellColor(v) }}
-                                        >
-                                          {v.toFixed(2)}
-                                        </td>
-                                      );
-                                    })}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })()}
-                </div>
-              ))}
-              {status === "submitted" && <Loader />}
-            </ConversationContent>
-            <ConversationScrollButton />
-          </Conversation>
+                        );
+                      })()}
+                    {/* Display correlation matrix from CorrelationMatrix tool */}
+                    {message.role === "assistant" &&
+                      (() => {
+                        const corrPart = message.parts.find(
+                          (part) =>
+                            "output" in part &&
+                            part.output &&
+                            typeof part.output === "object" &&
+                            "numericColumns" in part.output &&
+                            "matrix" in part.output,
+                        );
+
+                        if (!corrPart || !("output" in corrPart)) return null;
+
+                        const output = corrPart.output as {
+                          numericColumns: string[];
+                          matrix: Record<string, Record<string, number>>;
+                        };
+
+                        const cols = output.numericColumns;
+                        if (!cols || cols.length === 0) return null;
+
+                        const cellColor = (value: number) => {
+                          const v = Math.max(-1, Math.min(1, value));
+                          const intensity = Math.round(Math.abs(v) * 80); // 0-80
+                          if (v >= 0) {
+                            return `rgba(34,197,94,${0.2 + intensity / 200})`; // greenish
+                          }
+                          return `rgba(239,68,68,${0.2 + intensity / 200})`; // reddish
+                        };
+
+                        return (
+                          <div className="mt-4 rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
+                            <div className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                              Correlation Matrix
+                            </div>
+                            <div className="mt-2 max-h-64 overflow-auto text-xs">
+                              <table className="border-collapse">
+                                <thead>
+                                  <tr>
+                                    <th className="sticky left-0 bg-muted px-2 py-1 text-left">Var</th>
+                                    {cols.map((col) => (
+                                      <th key={col} className="px-2 py-1 text-right">
+                                        {col}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {cols.map((rowCol) => (
+                                    <tr key={rowCol}>
+                                      <td className="sticky left-0 bg-muted px-2 py-1 text-left font-medium">
+                                        {rowCol}
+                                      </td>
+                                      {cols.map((col) => {
+                                        const v = output.matrix?.[rowCol]?.[col] ?? 0;
+                                        return (
+                                          <td
+                                            key={col}
+                                            className="px-2 py-1 text-right border cursor-pointer"
+                                            style={{ backgroundColor: cellColor(v) }}
+                                            onClick={() =>
+                                              setInput(
+                                                `Analyze the relationship between "${rowCol}" and "${col}" (scatterplot or grouped view) and explain any interesting patterns.`,
+                                              )
+                                            }
+                                          >
+                                            {v.toFixed(2)}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    {/* Fallback message when tools ran but no narrative was produced */}
+                    {message.role === "assistant" &&
+                      (() => {
+                        const hasTextPart = message.parts.some(
+                          (part) => part.type === "text",
+                        );
+                        const hasToolPart = message.parts.some((part) =>
+                          String(part.type).startsWith("tool-"),
+                        );
+                        const hasNarrativeOrReport = message.parts.some((part) => {
+                          if (!("output" in part) || !part.output) return false;
+                          const out = part.output as any;
+                          return (
+                            ("narrative" in out && "sql" in out && "confidence" in out) ||
+                            ("overview" in out && "sections" in out)
+                          );
+                        });
+
+                        if (!hasToolPart || hasTextPart || hasNarrativeOrReport) {
+                          return null;
+                        }
+
+                        return (
+                          <Message from={message.role}>
+                            <MessageContent>
+                              <Response>
+                                I have run one or more analysis tools for your request. You can review the tool cards above, or ask me to "generate a full EDA report" or "summarize key findings" for a written explanation.
+                              </Response>
+                            </MessageContent>
+                          </Message>
+                        );
+                      })()}
+                  </div>
+                ))}
+                {status === "submitted" && <Loader />}
+              </ConversationContent>
+              <ConversationScrollButton />
+            </Conversation>
+          ) : (
+            renderCompiledReport()
+          )}
 
           {dataset && (
             <div className="mt-4 mb-2 flex flex-wrap gap-2 text-xs">
