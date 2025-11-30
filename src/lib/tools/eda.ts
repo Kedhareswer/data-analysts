@@ -50,6 +50,7 @@ export const SummarizeColumns = tool({
 
     const rows = dataset.rows;
     const totalRows = rows.length;
+
     const summaries: Record<
       string,
       {
@@ -58,21 +59,52 @@ export const SummarizeColumns = tool({
         nullCount: number;
         distinctCount: number;
         sampleValues: unknown[];
+        cardinalityBucket: "low" | "medium" | "high" | "very_high";
         numericStats?: {
           min: number;
           max: number;
           mean: number;
+          median: number;
+          q1: number;
+          q3: number;
+          iqr: number;
+          variance: number;
+          stdDev: number;
+          skewness: number;
+          kurtosis: number;
+          outlierCountIqr: number;
+          outlierFractionIqr: number;
         };
       }
     > = {};
+
+    const charts: ChartPayload["charts"] = [];
+
+    const quantile = (sorted: number[], p: number): number => {
+      if (sorted.length === 0) return NaN;
+      const idx = (sorted.length - 1) * p;
+      const lower = Math.floor(idx);
+      const upper = Math.ceil(idx);
+      if (lower === upper) return sorted[lower];
+      const weight = idx - lower;
+      return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+    };
 
     for (const column of dataset.columns) {
       const name = column.name;
       const values = rows.map((r) => r[name]);
       const nonNullValues = values.filter((v) => v !== null && v !== undefined);
       const distinct = new Set(
-        nonNullValues.map((v) => (typeof v === "number" || typeof v === "boolean" ? v : String(v)))
+        nonNullValues.map((v) =>
+          typeof v === "number" || typeof v === "boolean" ? v : String(v)
+        )
       );
+
+      let cardinalityBucket: "low" | "medium" | "high" | "very_high";
+      if (distinct.size <= 10) cardinalityBucket = "low";
+      else if (distinct.size <= 100) cardinalityBucket = "medium";
+      else if (distinct.size <= 1000) cardinalityBucket = "high";
+      else cardinalityBucket = "very_high";
 
       const summary: (typeof summaries)[string] = {
         type: column.type,
@@ -80,26 +112,120 @@ export const SummarizeColumns = tool({
         nullCount: totalRows - nonNullValues.length,
         distinctCount: distinct.size,
         sampleValues: nonNullValues.slice(0, 5),
+        cardinalityBucket,
       };
 
       if (column.type === "number") {
         const nums = nonNullValues.filter((v) => typeof v === "number") as number[];
         if (nums.length > 0) {
-          const min = Math.min(...nums);
-          const max = Math.max(...nums);
+          const sorted = [...nums].sort((a, b) => a - b);
+          const min = sorted[0];
+          const max = sorted[sorted.length - 1];
           const mean = nums.reduce((acc, n) => acc + n, 0) / nums.length;
-          summary.numericStats = { min, max, mean };
+          const median = quantile(sorted, 0.5);
+          const q1 = quantile(sorted, 0.25);
+          const q3 = quantile(sorted, 0.75);
+          const iqr = q3 - q1;
+
+          // variance, std dev, skewness, kurtosis
+          let m2 = 0;
+          let m3 = 0;
+          let m4 = 0;
+          for (const x of nums) {
+            const d = x - mean;
+            const d2 = d * d;
+            m2 += d2;
+            m3 += d2 * d;
+            m4 += d2 * d2;
+          }
+          const n = nums.length;
+          const variance = n > 1 ? m2 / (n - 1) : 0;
+          const stdDev = Math.sqrt(variance);
+          const skewness =
+            n > 2 && stdDev > 0 ? (n * m3) / ((n - 1) * (n - 2) * stdDev * stdDev * stdDev) : 0;
+          const kurtosis =
+            n > 3 && variance > 0
+              ?
+                ((n * (n + 1) * m4) /
+                  ((n - 1) * (n - 2) * (n - 3) * variance * variance)) -
+                (3 * (n - 1) * (n - 1)) / ((n - 2) * (n - 3))
+              : 0;
+
+          // IQR-based outliers
+          const lowerFence = q1 - 1.5 * iqr;
+          const upperFence = q3 + 1.5 * iqr;
+          let outlierCountIqr = 0;
+          for (const x of nums) {
+            if (x < lowerFence || x > upperFence) outlierCountIqr += 1;
+          }
+          const outlierFractionIqr = nums.length
+            ? outlierCountIqr / nums.length
+            : 0;
+
+          summary.numericStats = {
+            min,
+            max,
+            mean,
+            median,
+            q1,
+            q3,
+            iqr,
+            variance,
+            stdDev,
+            skewness,
+            kurtosis,
+            outlierCountIqr,
+            outlierFractionIqr,
+          };
+
+          // simple histogram for numeric distributions (up to 20 bins)
+          const binCount = Math.min(20, Math.max(5, Math.round(Math.sqrt(nums.length))));
+          const range = max - min || 1;
+          const binSize = range / binCount;
+          const bins = new Array(binCount).fill(0);
+          for (const x of nums) {
+            let idx = Math.floor((x - min) / binSize);
+            if (idx < 0) idx = 0;
+            if (idx >= binCount) idx = binCount - 1;
+            bins[idx] += 1;
+          }
+          const histData = bins.map((count, i) => ({
+            binStart: min + i * binSize,
+            binEnd: min + (i + 1) * binSize,
+            count,
+          }));
+
+          charts.push({
+            spec: {
+              id: `hist-${dataset.id}-${name}`,
+              title: `Distribution of ${name}`,
+              type: "bar",
+              xField: "binStart",
+              yField: "count",
+            },
+            data: histData,
+          });
         }
       }
 
       summaries[name] = summary;
     }
 
-    return {
+    const result: {
+      datasetId: string;
+      rowCount: number;
+      columns: typeof summaries;
+    } & Partial<ChartPayload> = {
       datasetId: dataset.id,
       rowCount: totalRows,
       columns: summaries,
     };
+
+    if (charts.length > 0) {
+      (result as ChartPayload).charts = charts;
+    }
+
+    return result;
   },
 });
 
@@ -356,11 +482,39 @@ export const MissingValuesSummary = tool({
       return acc + (hasMissing ? 1 : 0);
     }, 0);
 
+    // row-level missingness: rows with more than N missing columns
+    const thresholdCounts = [1, 2, 3];
+    const rowsWithMoreThan: Record<string, number> = {};
+    for (const t of thresholdCounts) {
+      let count = 0;
+      for (const row of rows) {
+        let missing = 0;
+        for (const col of dataset.columns) {
+          const v = row[col.name];
+          if (v === null || v === undefined || v === "") missing += 1;
+        }
+        if (missing > t) count += 1;
+      }
+      rowsWithMoreThan[`gt_${t}`] = count;
+    }
+
+    // column-level missingness: columns over X% missing
+    const columnThresholds = [20, 50, 80];
+    const columnsOverThresholds: Record<string, string[]> = {};
+    for (const pct of columnThresholds) {
+      const key = `gte_${pct}`;
+      columnsOverThresholds[key] = columns
+        .filter((c) => c.nullPercent >= pct)
+        .map((c) => c.name);
+    }
+
     return {
       datasetId: dataset.id,
       rowCount: rows.length,
       rowsWithAnyMissing,
       columns,
+      rowsWithMoreThanMissing: rowsWithMoreThan,
+      columnsOverMissingThresholds: columnsOverThresholds,
     };
   },
 });

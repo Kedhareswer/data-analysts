@@ -6,7 +6,7 @@ import {
   convertToModelMessages,
   streamText,
 } from "ai";
-import { groq } from "@ai-sdk/groq";
+import { groq, createGroq } from "@ai-sdk/groq";
 import {
   AssessEntityCoverage,
   ClarifyIntent,
@@ -76,17 +76,23 @@ export async function runAgent({
   prompt,
   model = "openai/gpt-oss-20b",
   datasetId,
+  groqApiKey,
 }: {
   messages: UIMessage[];
   prompt?: string;
   model?: string;
   datasetId?: string;
+  groqApiKey?: string;
 }) {
   let phase: Phase = "planning";
   const possibleEntities = await ListEntities();
 
+  const provider = groqApiKey
+    ? createGroq({ apiKey: groqApiKey })
+    : groq;
+
   const result = streamText({
-    model: groq(model),
+    model: provider(model),
     messages: convertToModelMessages(messages),
     tools: {
       ReadEntityYamlRaw,
